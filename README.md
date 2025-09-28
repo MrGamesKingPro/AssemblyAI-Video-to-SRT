@@ -6,7 +6,7 @@ This  GUI tool converts video files into SRT subtitle files. It extracts audio u
 #### **Requirements**
 
 **1. Tool Requirements**
-    *   Download `ffmpeg.exe` from [ffmpeg.org/download.html](https://ffmpeg.org/download.html).
+*   *  Download `ffmpeg.exe` from [ffmpeg.org/download.html](https://ffmpeg.org/download.html).
     *   Place `ffmpeg.exe` in the same directory where you placed the `app.py` script, or add FFmpeg to your system's PATH.
 
 **2. Python Requirements**
