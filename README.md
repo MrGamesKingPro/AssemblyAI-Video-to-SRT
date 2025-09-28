@@ -21,7 +21,7 @@ Or you can download a version without installing the library.
 
 1. **Tool Requirements**
     *  Download `ffmpeg.exe` from [ffmpeg.org/download.html](https://ffmpeg.org/download.html).
-    *   Place `ffmpeg.exe` in the same directory where you placed the `app.py` script, or add FFmpeg to your system's PATH.
+    *   Place `ffmpeg.exe` in the same directory where you placed the `AssemblyAI-Video-to-SRT.py` script, or add FFmpeg to your system's PATH.
 
 **2. Python Requirements**
 This application requires Python 3.7+ and the following libraries. You can install them using pip:
