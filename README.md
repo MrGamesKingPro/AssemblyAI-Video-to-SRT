@@ -3,8 +3,9 @@ This  GUI tool converts video files into SRT subtitle files. It extracts audio u
 
 <img width="715" height="647" alt="Screenshot_2025-09-28_22-36-58" src="https://github.com/user-attachments/assets/7654bf9d-322d-45f3-8a83-187d6bc1aee0" />
 
-This looks like a folder structure.
+
 ```bash
+. This looks like a folder structure.
 ├── AssemblyAI-Video-to-SRT-main/
 │   └── AssemblyAI-Video-to-SRT.py
 ├── ffmpeg.exe
