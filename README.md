@@ -13,7 +13,7 @@ This looks like a folder structure.
 ## Download ##
 Or you can download a version without installing the library.
 
-AssemblyAI-Video-to-SRT
+[AssemblyAI-Video-to-SRT](https://github.com/MrGamesKingPro/AssemblyAI-Video-to-SRT/releases/tag/AssemblyAI-Video-to-SRT)
 
 
 #### **Requirements**
