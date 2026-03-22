@@ -16,35 +16,57 @@ Or you can download a version without installing the library.
 
 [AssemblyAI-Video-to-SRT](https://github.com/MrGamesKingPro/AssemblyAI-Video-to-SRT/releases/tag/AssemblyAI-Video-to-SRT)
 
+#### **Key Features**
+*   **AI Auto-Language Detection:** Automatically identifies the spoken language in your media.
+*   **Multi-Language Translation:** Seamlessly translates transcriptions into Arabic, French, Spanish, Russian, and more.
+*   **Professional SRT Standards:** Enforces global subtitling rules (Max 42 chars/line, 2 lines/block, 6s duration).
+*   **Speaker Diarization:** Distinguishes between different speakers for a structured layout.
+*   **Zero-Config Dependency Manager:** Automatically installs missing Python libraries on first launch.
+*   **Universal Support:** Works with both video (`.mp4`, `.mkv`, etc.) and audio (`.mp3`, `.wav`, etc.).
+
+---
 
 #### **Requirements**
 
-1. **Tool Requirements**
-    *  Download `ffmpeg.exe` from [ffmpeg.org/download.html](https://ffmpeg.org/download.html).
-    *   Place `ffmpeg.exe` in the same directory where you placed the `AssemblyAI-Video-to-SRT.py` script, or add FFmpeg to your system's PATH.
+**1. Media Processing Tool (Mandatory)**
+*   Download `ffmpeg.exe` from [ffmpeg.org/download.html](https://ffmpeg.org/download.html).
+*   **Important:** Place `ffmpeg.exe` in the same folder as the script, or add it to your System PATH.
 
-**2. Python Requirements**
-This application requires Python 3.7+ and the following libraries. You can install them using pip:
+**2. Python Environment**
+*   This application requires **Python 3.8+**.
+*   **Note:** The script features **Auto-Installation**. It will automatically attempt to install `customtkinter`, `assemblyai`, and `deep-translator` if they are missing. However, you can install them manually using:
+    ```bash
+    pip install customtkinter assemblyai deep-translator
+    ```
 
+---
+
+#### **Getting Started Guide**
+
+**1. Obtain your AssemblyAI API Key:**
+*   Sign up for a free account at [assemblyai.com](https://www.assemblyai.com).
+*   Copy your unique **API Key** from the dashboard.
+
+**2. Launch the Application:**
+Run the script using the following command:
 ```bash
-pip install customtkinter assemblyai
+python AI-Subtitler-Translator.py
 ```
 
-#### **How to Use**
+**3. Using the Interface:**
+*   **Select Media File:** Click **Browse** to choose a video or audio file.
+*   **API Key:** Paste your AssemblyAI key. It will be saved locally in `api_key.ini` so you don't have to enter it again.
+*   **Select Translation:** Use the **"Translate To"** dropdown menu. Choose "None" for original language only, or select a target language (e.g., Arabic) to generate a second, translated SRT file.
+*   **Generate Subtitles:** Click the **"Generate Subtitles"** button.
+*   **Monitor Progress:** 
+    *   The **Detected Source** label will update once the AI identifies the language.
+    *   The **Log Box** provides real-time status updates (Normalization, Transcription, Translation).
+*   **Result:** Once finished, a success message will appear. Your SRT files will be saved in the same folder as your source media.
 
-1.  **Get Your AssemblyAI API Key:**
-    *   Visit [assemblyai.com](https://www.assemblyai.com) and sign up for a free account.
-    *   Log in to your dashboard and copy your API key.
+---
 
-2.  **Run the Application:**
-    Execute the Python script:
-    ```bash
-    python AssemblyAI-Video-to-SRT.py
-    ```
-3.  **Using the GUI:**
-    *   **Select Video File:** Click the "Browse" button next to "Video File" and choose your `.mp4`, `.mkv`, `.mov`, etc. file.
-    *   **Save SRT as:** A default `.srt` file name and path will be suggested based on your video. You can change this by clicking "Save As".
-    *   **Enter AssemblyAI API Key:** Paste your AssemblyAI API key into the "AssemblyAI API Key" field. (The application will save this key for future use).
-    *   **Start Transcription:** Click the "Start Transcription" button.
-    *   **Monitor Progress:** The log box will display real-time updates on the audio extraction and transcription process.
-    *   **Completion:** A message box will confirm when the SRT file has been successfully created.
+#### **Professional Standards Applied**
+The tool ensures your subtitles are "Netflix-ready" by applying the following logic:
+*   **Line Length:** Breaks lines at 42 characters to prevent screen overcrowding.
+*   **Block Limits:** Limits each subtitle to 2 lines maximum.
+*   **Timing:** Maintains a minimum 0.8s gap between blocks and a 6s maximum display time for better readability.
