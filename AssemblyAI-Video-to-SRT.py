@@ -4,15 +4,39 @@ import subprocess
 import assemblyai as aai
 import os
 import threading
+from deep_translator import GoogleTranslator
 
-# --- Constants ---
-# Define the filename for storing the API key.
+# --- Constants for Professional Subtitles ---
 API_KEY_FILE = "api_key.ini"
+MAX_CHARS_PER_LINE = 42  
+MAX_LINES_PER_BLOCK = 2  
+MAX_DURATION_SECONDS = 6.0 
+MIN_PAUSE_BETWEEN_BLOCKS = 0.8 
 
-# --- Core Transcription and SRT Generation Logic ---
+# --- Language Mapping ---
+LANGUAGE_NAMES = {
+    "EN": "English", "RU": "Russian", "AR": "Arabic", "ES": "Spanish",
+    "FR": "French", "DE": "German", "IT": "Italian", "PT": "Portuguese",
+    "ZH": "Chinese", "JA": "Japanese", "KO": "Korean", "TR": "Turkish"
+}
+
+# Translation Targets (Full Name to ISO Code)
+TRANSLATE_TO = {
+    "None (Original Only)": None,
+    "Arabic": "ar",
+    "English": "en",
+    "Russian": "ru",
+    "French": "fr",
+    "Spanish": "es",
+    "German": "de",
+    "Turkish": "tr"
+}
+
+def get_full_language_name(code):
+    code_up = code.upper()
+    return LANGUAGE_NAMES.get(code_up, f"Unknown ({code_up})")
 
 def format_srt_time(seconds):
-    """Converts seconds to the standard SRT time format (HH:MM:SS,ms)."""
     millisec = int((seconds - int(seconds)) * 1000)
     seconds = int(seconds)
     minutes = seconds // 60
@@ -21,410 +45,211 @@ def format_srt_time(seconds):
     minutes %= 60
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},{millisec:03d}"
 
-def create_speaker_srt(video_path, srt_path, api_key, log_callback):
+def create_professional_srt(media_path, srt_path, api_key, target_lang_code, log_callback, lang_callback):
     """
-    Transcribes a video and creates a formatted SRT file with advanced splitting logic.
-    This version includes more detailed logging for the GUI.
+    1. Transcribes media.
+    2. Saves original SRT.
+    3. Translates and saves a separate SRT if target_lang_code is provided.
     """
     try:
-        # --- Pre-check and Initial Logging ---
-        log_callback("--- Starting New Transcription Process ---")
-        if not os.path.exists(video_path):
-            log_callback(f"Error: Video file not found at '{video_path}'")
-            log_callback("--- Process Halted ---")
+        log_callback("--- Starting AI Professional Transcription ---")
+        if not os.path.exists(media_path):
+            log_callback(f"Error: File '{media_path}' not found.")
             return
-        
-        log_callback(f"Input Video: {video_path}")
-        log_callback(f"Output SRT: {srt_path}")
 
-        base_name = os.path.basename(video_path)
+        base_name = os.path.basename(media_path)
         file_name, _ = os.path.splitext(base_name)
-        # Define a temporary path for the extracted audio file.
-        audio_path = f"temp_{file_name}.wav"
+        temp_audio = f"temp_proc_{file_name}.wav"
 
-        # --- [MODIFIED] Step 1: Extract Audio from Video using FFmpeg ---
-        log_callback("\n[Step 1/3] Extracting Audio from Video...")
-        try:
-            # Determine the path for the ffmpeg executable.
-            # Prioritize ffmpeg.exe in the same directory as the script/application.
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            local_ffmpeg_path = os.path.join(script_dir, "ffmpeg.exe")
-            
-            ffmpeg_command_name = "ffmpeg" # Default to relying on PATH
-            if os.path.exists(local_ffmpeg_path):
-                ffmpeg_command_name = local_ffmpeg_path
-                log_callback(f"-> Using local ffmpeg executable: {local_ffmpeg_path}")
-            else:
-                log_callback("-> Local 'ffmpeg.exe' not found. Relying on system PATH for 'ffmpeg'.")
-
-            log_callback(f"-> Creating temporary audio file using ffmpeg: {audio_path}")
-            
-            # This command extracts audio to a WAV file, which is ideal for AssemblyAI.
-            # -y: Overwrite output file if it exists
-            # -vn: No video
-            # -acodec pcm_s16le: Standard WAV audio codec
-            # -ar 16000: Sample rate of 16kHz (good for transcription)
-            # -ac 1: Mono audio channel
-            command = [
-                ffmpeg_command_name, # Use the determined ffmpeg path/name
-                "-i", video_path,
-                "-y",
-                "-vn",
-                "-acodec", "pcm_s16le",
-                "-ar", "16000",
-                "-ac", "1",
-                audio_path
-            ]
-            
-            # Execute the command and hide the console window on Windows
-            startupinfo = None
-            if os.name == 'nt':
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-
-            result = subprocess.run(command, capture_output=True, text=True, check=False, startupinfo=startupinfo)
-
-            # Check if ffmpeg command was successful
-            if result.returncode != 0:
-                log_callback("--- FFmpeg Error ---")
-                log_callback(f"ffmpeg failed with exit code {result.returncode}")
-                log_callback("Error Details:")
-                log_callback(result.stderr)
-                log_callback("--- Please ensure 'ffmpeg.exe' is located in the same directory as this application, or installed and in your system's PATH. ---")
-                log_callback("--- Process Halted ---")
-                return
-
-            log_callback("-> Audio extracted successfully.")
-            log_callback("✅ Step 1 Complete: Audio Extraction Finished.")
+        # --- Step 1: Normalize Audio ---
+        log_callback("[1/4] Normalizing audio...")
+        ffmpeg_cmd = "ffmpeg" # Assumes ffmpeg is in system PATH
+        command = [ffmpeg_cmd, "-i", media_path, "-y", "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", temp_audio]
         
-        except FileNotFoundError:
-            log_callback("Error: 'ffmpeg' command not found.")
-            log_callback("Please ensure 'ffmpeg.exe' is located in the same directory as this application, or installed and in your system's PATH.")
-            log_callback("You can download it from: https://ffmpeg.org/download.html")
-            log_callback("--- Process Halted ---")
-            messagebox.showerror("FFmpeg Not Found", "ffmpeg is required for audio extraction. Please ensure 'ffmpeg.exe' is in the same directory as this application, or installed and added to your system's PATH.")
-            return
-        except Exception as e:
-            log_callback(f"Error extracting audio: {e}")
-            log_callback("--- Process Halted ---")
+        startupinfo = None
+        if os.name == 'nt':
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+        result = subprocess.run(command, capture_output=True, text=True, startupinfo=startupinfo)
+        if result.returncode != 0:
+            log_callback(f"FFmpeg Error: {result.stderr}")
             return
 
-        # --- Step 2: Transcribe Audio using AssemblyAI ---
-        log_callback("\n[Step 2/3] Transcribing Audio with AssemblyAI...")
-        try:
-            # Configure AssemblyAI with the user-provided API key.
-            log_callback("-> Configuring AssemblyAI client with API key...")
-            aai.settings.api_key = api_key
-            transcriber = aai.Transcriber()
-            
-            # Set transcription config to get word-level timestamps.
-            config = aai.TranscriptionConfig(speaker_labels=False)
-            
-            log_callback(f"-> Uploading '{os.path.basename(audio_path)}' for transcription...")
-            log_callback("(This may take a while depending on file size)")
-            transcript = transcriber.transcribe(audio_path, config)
-
-            # Handle potential transcription errors returned by the API.
-            log_callback("-> Checking transcription status...")
-            if transcript.status == aai.TranscriptStatus.error:
-                log_callback(f"Transcription Failed: {transcript.error}")
-                log_callback("--- Process Halted ---")
-                return
-            
-            if not transcript.words:
-                log_callback("Warning: Could not find any speech or words in the audio.")
-                # We don't halt here, just proceed to create an empty SRT.
-            
-            log_callback("-> Transcription successful.")
-            log_callback("✅ Step 2 Complete: Transcription Finished.")
-
-        except Exception as e:
-            log_callback(f"Error during transcription: {e}")
-            log_callback("--- Process Halted ---")
+        # --- Step 2: AI Transcription ---
+        log_callback("[2/4] AI identifying languages and speakers...")
+        aai.settings.api_key = api_key
+        transcriber = aai.Transcriber()
+        config = aai.TranscriptionConfig(speaker_labels=True, language_detection=True)
+        
+        transcript = transcriber.transcribe(temp_audio, config)
+        if transcript.status == aai.TranscriptStatus.error:
+            log_callback(f"AssemblyAI Error: {transcript.error}")
             return
-        finally:
-            # Clean up the temporary audio file regardless of success or failure.
-            if os.path.exists(audio_path):
-                log_callback("-> Cleaning up temporary files...")
-                os.remove(audio_path)
-                log_callback(f"-> Removed temporary audio file: {audio_path}")
 
-        # --- Step 3: Generate SRT file with Advanced Splitting Logic ---
-        log_callback(f"\n[Step 3/3] Generating SRT File at '{srt_path}'...")
-        log_callback("-> Applying subtitle formatting and splitting logic...")
+        # Display detected language
+        detected_code = transcript.json_response.get('language_code', 'en')
+        display_name = get_full_language_name(detected_code)
+        lang_callback(display_name)
+        log_callback(f"Detected: {display_name}")
+
+        if os.path.exists(temp_audio):
+            os.remove(temp_audio)
+
+        # --- Step 3: Generate Original SRT ---
+        log_callback("[3/4] Generating original SRT layout...")
         
-        # --- SRT Generation Logic ---
-        MAX_PAUSE_S = 0.7
-        MAX_CHARS = 80
-        MAX_DURATION_S = 7
-        
+        # Prepare segments for translation to avoid double AI calls
+        segments = []
         srt_counter = 1
-        with open(srt_path, 'w', encoding='utf-8') as f:
-            if transcript.words: # Only process if there are words
-                current_block_words = []
-
-                for i, word in enumerate(transcript.words):
-                    should_start_new_block = False
-
-                    if not current_block_words:
-                        current_block_words.append(word)
-                        continue
-
-                    prev_word = current_block_words[-1]
-
-                    pause_duration = (word.start - prev_word.end) / 1000
-                    if pause_duration >= MAX_PAUSE_S:
-                        should_start_new_block = True
-                    
-                    current_text = " ".join(w.text for w in current_block_words)
-                    if len(current_text) + len(word.text) + 1 > MAX_CHARS:
-                        should_start_new_block = True
-
-                    block_start_time = current_block_words[0].start
-                    block_duration = (word.end - block_start_time) / 1000
-                    if block_duration >= MAX_DURATION_S:
-                        should_start_new_block = True
-
-                    if should_start_new_block:
-                        start_time = format_srt_time(current_block_words[0].start / 1000)
-                        end_time = format_srt_time(current_block_words[-1].end / 1000)
-                        text = " ".join(w.text for w in current_block_words)
-                        
-                        f.write(f"{srt_counter}\n")
-                        f.write(f"{start_time} --> {end_time}\n")
-                        f.write(f"{text}\n\n")
-                        
-                        srt_counter += 1
-                        current_block_words = [word]
-                    else:
-                        current_block_words.append(word)
-
-                if current_block_words:
-                    start_time = format_srt_time(current_block_words[0].start / 1000)
-                    end_time = format_srt_time(current_block_words[-1].end / 1000)
-                    text = " ".join(w.text for w in current_block_words)
-                    
-                    f.write(f"{srt_counter}\n")
-                    f.write(f"{start_time} --> {end_time}\n")
-                    f.write(f"{text}\n\n")
-                    srt_counter += 1
         
-        log_callback(f"-> Generated {srt_counter - 1} subtitle blocks.")
-        log_callback("✅ Step 3 Complete: SRT File Generation Finished.")
+        with open(srt_path, 'w', encoding='utf-8') as f:
+            for utterance in transcript.utterances:
+                words = utterance.words
+                current_block_words = []
+                
+                for i, word in enumerate(words):
+                    current_block_words.append(word)
+                    should_split = (i == len(words) - 1)
+                    
+                    if i < len(words) - 1:
+                        if (words[i+1].start - word.end) / 1000 > MIN_PAUSE_BETWEEN_BLOCKS:
+                            should_split = True
+                    
+                    text_preview = " ".join(w.text for w in current_block_words)
+                    if len(text_preview) > (MAX_CHARS_PER_LINE * MAX_LINES_PER_BLOCK):
+                        should_split = True
 
-        # --- Final Success Message ---
-        log_callback("\n-------------------------------------------")
-        log_callback("PROCESS COMPLETE!")
-        log_callback(f"SRT file has been saved to: {srt_path}")
-        messagebox.showinfo("Success", f"SRT file has been created successfully at:\n{srt_path}")
+                    if should_split:
+                        start_t = format_srt_time(current_block_words[0].start / 1000)
+                        end_t = format_srt_time(current_block_words[-1].end / 1000)
+                        content = " ".join(w.text for w in current_block_words)
+                        
+                        # Store for translation
+                        segments.append({'start': start_t, 'end': end_t, 'text': content})
+                        
+                        f.write(f"{srt_counter}\n{start_t} --> {end_t}\n{content}\n\n")
+                        srt_counter += 1
+                        current_block_words = []
+
+        # --- Step 4: Translation (Optional) ---
+        if target_lang_code:
+            log_callback(f"[4/4] Translating to {target_lang_code.upper()}...")
+            translated_path = srt_path.replace(".srt", f"_{target_lang_code.upper()}.srt")
+            
+            translator = GoogleTranslator(source='auto', target=target_lang_code)
+            
+            with open(translated_path, 'w', encoding='utf-8') as f_trans:
+                for idx, seg in enumerate(segments, 1):
+                    try:
+                        translated_text = translator.translate(seg['text'])
+                        f_trans.write(f"{idx}\n{seg['start']} --> {seg['end']}\n{translated_text}\n\n")
+                    except Exception as trans_err:
+                        log_callback(f"Translation Error at block {idx}: {trans_err}")
+                        f_trans.write(f"{idx}\n{seg['start']} --> {seg['end']}\n{seg['text']}\n\n")
+
+            log_callback(f"✅ Success! Original and Translated SRTs saved.")
+            messagebox.showinfo("Finished", f"Process Complete!\nOriginal: {os.path.basename(srt_path)}\nTranslated: {os.path.basename(translated_path)}")
+        else:
+            log_callback("✅ Success! Original SRT saved.")
+            messagebox.showinfo("Finished", "Original SRT generated successfully!")
 
     except Exception as e:
-        # --- General Error Handling ---
-        error_message = f"An unexpected error occurred: {e}"
-        log_callback(error_message)
-        log_callback("--- Process Halted due to unexpected error ---")
-        messagebox.showerror("Error", error_message)
+        log_callback(f"System Error: {str(e)}")
+        messagebox.showerror("Error", str(e))
 
+# --- GUI Section ---
 
-# --- GUI Application Class ---
-class App(ctk.CTk):
+class ProfessionalApp(ctk.CTk):
     def __init__(self):
         super().__init__()
+        self.title("AI Subtitler & Translator")
+        self.geometry("750x750")
+        ctk.set_appearance_mode("dark")
 
-        # --- Window Setup ---
-        self.title("AssemblyAI Video to SRT By (MrGamesKingPro)")
-        self.geometry("700x600") # Increased height to make space for the progress bar
-        # Set the appearance to dark mode (black) and the theme to blue.
-        ctk.set_appearance_mode("dark") 
-        ctk.set_default_color_theme("blue")
-
-        # --- Layout Configuration ---
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(3, weight=1) # Make the log box row expandable
+        self.grid_rowconfigure(5, weight=1)
 
-        # --- Frame for User Inputs ---
-        self.input_frame = ctk.CTkFrame(self)
-        self.input_frame.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
-        self.input_frame.grid_columnconfigure(1, weight=1)
+        # Input Frame
+        self.frame = ctk.CTkFrame(self)
+        self.frame.grid(row=0, column=0, padx=20, pady=20, sticky="ew")
+        self.frame.grid_columnconfigure(1, weight=1)
 
-        # --- Widget Definitions ---
+        # File
+        ctk.CTkLabel(self.frame, text="Source File:").grid(row=0, column=0, padx=10, pady=10)
+        self.path_entry = ctk.CTkEntry(self.frame, placeholder_text="Select media file...")
+        self.path_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
+        ctk.CTkButton(self.frame, text="Browse", width=80, command=self.browse_file).grid(row=0, column=2, padx=10)
 
-        # Video File Selection
-        self.video_label = ctk.CTkLabel(self.input_frame, text="Video File:")
-        self.video_label.grid(row=0, column=0, padx=10, pady=5, sticky="w")
-        self.video_path_entry = ctk.CTkEntry(self.input_frame, placeholder_text="Select a video file...")
-        self.video_path_entry.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
-        self.video_browse_button = ctk.CTkButton(self.input_frame, text="Browse", width=100, command=self.browse_video)
-        self.video_browse_button.grid(row=0, column=2, padx=10, pady=5)
+        # API Key
+        ctk.CTkLabel(self.frame, text="API Key:").grid(row=1, column=0, padx=10, pady=10)
+        self.api_entry = ctk.CTkEntry(self.frame, show="*", placeholder_text="AssemblyAI API Key")
+        self.api_entry.grid(row=1, column=1, columnspan=2, padx=10, pady=10, sticky="ew")
 
-        # SRT Save Path
-        self.srt_label = ctk.CTkLabel(self.input_frame, text="Save SRT as:")
-        self.srt_label.grid(row=1, column=0, padx=10, pady=5, sticky="w")
-        self.srt_path_entry = ctk.CTkEntry(self.input_frame, placeholder_text="Select a location to save the .srt file...")
-        self.srt_path_entry.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
-        self.srt_browse_button = ctk.CTkButton(self.input_frame, text="Save As", width=100, command=self.browse_srt)
-        self.srt_browse_button.grid(row=1, column=2, padx=10, pady=5)
+        # Translation Selector
+        ctk.CTkLabel(self.frame, text="Translate To:").grid(row=2, column=0, padx=10, pady=10)
+        self.trans_combo = ctk.CTkComboBox(self.frame, values=list(TRANSLATE_TO.keys()))
+        self.trans_combo.grid(row=2, column=1, columnspan=2, padx=10, pady=10, sticky="ew")
+        self.trans_combo.set("None (Original Only)")
 
-        # API Key Input
-        self.api_key_label = ctk.CTkLabel(self.input_frame, text="AssemblyAI API Key:")
-        self.api_key_label.grid(row=2, column=0, padx=10, pady=5, sticky="w")
-        self.api_key_entry = ctk.CTkEntry(self.input_frame, placeholder_text="Enter your API key here...", show="*")
-        self.api_key_entry.grid(row=2, column=1, columnspan=2, padx=10, pady=5, sticky="ew")
+        # Info Labels
+        self.info_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.info_frame.grid(row=1, column=0, padx=20, pady=5, sticky="ew")
+        ctk.CTkLabel(self.info_frame, text="Detected Source:", font=("Arial", 13, "bold")).pack(side="left", padx=5)
+        self.lang_value = ctk.CTkLabel(self.info_frame, text="None", text_color="#00ced1", font=("Arial", 14, "bold"))
+        self.lang_value.pack(side="left", padx=5)
+
+        # Start Button
+        self.btn_run = ctk.CTkButton(self, text="Generate Subtitles", command=self.start_process, height=45, fg_color="#1f6aa5", font=("Arial", 13, "bold"))
+        self.btn_run.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
+
+        # Progress & Logs
+        self.progress = ctk.CTkProgressBar(self, mode="indeterminate")
+        self.log_box = ctk.CTkTextbox(self, font=("Consolas", 12))
+        self.log_box.grid(row=5, column=0, padx=20, pady=20, sticky="nsew")
+
+        self.load_key()
+
+    def browse_file(self):
+        f = filedialog.askopenfilename(filetypes=[("Media", "*.mp4 *.mp3 *.mkv *.wav *.mov *.m4a")])
+        if f:
+            self.path_entry.delete(0, "end")
+            self.path_entry.insert(0, f)
+
+    def load_key(self):
+        if os.path.exists(API_KEY_FILE):
+            with open(API_KEY_FILE, 'r') as file:
+                self.api_entry.insert(0, file.read().strip())
+
+    def start_process(self):
+        path = self.path_entry.get()
+        key = self.api_entry.get()
+        target_name = self.trans_combo.get()
+        target_code = TRANSLATE_TO[target_name]
         
-        # --- Start Button ---
-        self.start_button = ctk.CTkButton(self, text="Start Transcription", command=self.start_processing_thread)
-        self.start_button.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
-
-        # --- Progress Bar (NEW FEATURE) ---
-        self.progress_bar = ctk.CTkProgressBar(self, mode="indeterminate")
-        # The progress bar is not displayed initially; it's shown using .grid() when processing starts.
-
-        # --- Log Box ---
-        self.log_box = ctk.CTkTextbox(self, state="disabled", wrap="word")
-        self.log_box.grid(row=3, column=0, padx=10, pady=10, sticky="nsew")
-
-        # --- Initial Setup Calls ---
-        self.load_api_key() # Load the key on startup.
-        self.show_welcome_message() # Show instructions on startup.
-
-    # --- GUI Helper Methods ---
-
-    def browse_video(self):
-        """Opens a file dialog to select a video file."""
-        file_path = filedialog.askopenfilename(
-            title="Select a Video File",
-            filetypes=(("Video Files", "*.mp4 *.mkv *.mov *.avi"), ("All files", "*.*"))
-        )
-        if file_path:
-            self.video_path_entry.delete(0, "end")
-            self.video_path_entry.insert(0, file_path)
-            # Auto-suggest the SRT output path based on the video name.
-            srt_path = os.path.splitext(file_path)[0] + ".srt"
-            self.srt_path_entry.delete(0, "end")
-            self.srt_path_entry.insert(0, srt_path)
-
-    def browse_srt(self):
-        """Opens a file dialog to choose where to save the SRT file."""
-        file_path = filedialog.asksaveasfilename(
-            title="Save SRT File As",
-            defaultextension=".srt",
-            filetypes=(("SRT files", "*.srt"), ("All files", "*.*"))
-        )
-        if file_path:
-            self.srt_path_entry.delete(0, "end")
-            self.srt_path_entry.insert(0, file_path)
-            
-    def log(self, message):
-        """
-        Thread-safe method to insert a message into the log box.
-        This is passed as a callback to the transcription function.
-        """
-        self.log_box.configure(state="normal")
-        self.log_box.insert("end", message + "\n")
-        self.log_box.configure(state="disabled")
-        self.log_box.see("end") # Auto-scroll to the bottom.
-        self.update_idletasks() # Force UI to refresh immediately.
-
-    def show_welcome_message(self):
-        """Displays initial instructions in the log box (NEW FEATURE)."""
-        welcome_text = """
-Welcome to the SRT Generator!
-
-How to Use:
-1. Click 'Browse' to select your video file (.mp4, .mkv, etc.).
-2. The 'Save SRT as' path will be suggested automatically. You can change it if you wish.
-3. Enter your AssemblyAI API key below. The key will be saved for future use.
-4. Click 'Start Transcription' to begin the process.
-
-How to get an AssemblyAI API Key:
-1. Go to assemblyai.com and sign up for a free account.
-2. After signing in, you will see your API key on your dashboard.
-3. Copy the key and paste it into the API key field in this application.
-
-Important: FFmpeg is required for audio extraction. Please ensure 'ffmpeg.exe' is placed in the same directory as this application, or installed and added to your system's PATH. You can download it from: https://ffmpeg.org/download.html
-
-Logs and progress will appear in this box.
--------------------------------------------
-"""
-        self.log_box.configure(state="normal")
-        self.log_box.insert("1.0", welcome_text)
-        self.log_box.configure(state="disabled")
-
-    # --- API Key Persistence Methods (NEW FEATURE) ---
-
-    def load_api_key(self):
-        """Loads the API key from the local file if it exists."""
-        try:
-            with open(API_KEY_FILE, 'r') as f:
-                api_key = f.read().strip()
-                if api_key:
-                    self.api_key_entry.insert(0, api_key)
-                    self.log(f"Loaded API Key from {API_KEY_FILE}")
-        except FileNotFoundError:
-            # This is normal if the app is run for the first time.
-            self.log("API key file not found. Please enter your key.")
-        except Exception as e:
-            self.log(f"Error loading API key: {e}")
-
-    def save_api_key(self, api_key):
-        """Saves the API key to a local file."""
-        try:
-            with open(API_KEY_FILE, 'w') as f:
-                f.write(api_key)
-            self.log(f"API Key saved to {API_KEY_FILE}")
-        except Exception as e:
-            self.log(f"Error saving API key: {e}")
-
-    # --- Processing and Threading ---
-
-    def start_processing_thread(self):
-        """Validates inputs and starts the transcription process in a new thread."""
-        video_path = self.video_path_entry.get()
-        srt_path = self.srt_path_entry.get()
-        api_key = self.api_key_entry.get()
-
-        # Input validation.
-        if not video_path or not srt_path or not api_key:
-            messagebox.showwarning("Missing Information", "Please fill in all fields before starting.")
+        if not path or not key:
+            messagebox.showwarning("Warning", "File and API Key required.")
             return
-        
-        # --- UI State: Processing ---
-        self.start_button.configure(state="disabled", text="Processing...")
-        self.progress_bar.grid(row=2, column=0, padx=10, pady=5, sticky="ew") # Show progress bar.
-        self.progress_bar.start()
-        
-        # Clear log for the new process.
-        self.log_box.configure(state="normal")
-        self.log_box.delete("1.0", "end")
-        self.log_box.configure(state="disabled")
-        
-        # Save the API key for the next session.
-        self.save_api_key(api_key)
-        
-        # Run the core logic in a separate thread to keep the GUI responsive.
-        processing_thread = threading.Thread(
-            target=self.run_transcription,
-            args=(video_path, srt_path, api_key)
-        )
-        processing_thread.daemon = True # Allows app to close even if the thread is running.
-        processing_thread.start()
-        
-    def run_transcription(self, video_path, srt_path, api_key):
-        """
-        Wrapper function that runs in the background thread.
-        It calls the main transcription function and handles UI updates upon completion.
-        """
-        try:
-            create_speaker_srt(video_path, srt_path, api_key, self.log)
-        finally:
-            # --- UI State: Idle ---
-            # This 'finally' block ensures the UI is reset even if an error occurs during processing.
-            self.start_button.configure(state="normal", text="Start Transcription")
-            self.progress_bar.stop()
-            self.progress_bar.grid_forget() # Hide the progress bar again.
 
+        with open(API_KEY_FILE, 'w') as f: f.write(key)
+        srt_out = os.path.splitext(path)[0] + ".srt"
+        
+        self.btn_run.configure(state="disabled", text="Processing...")
+        self.progress.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
+        self.progress.start()
+        
+        threading.Thread(target=self.worker, args=(path, srt_out, key, target_code), daemon=True).start()
 
-# --- Main Execution Block ---
-if __name__ == '__main__':
-    app = App()
+    def worker(self, p, s, k, t):
+        create_professional_srt(p, s, k, t, self.log, lambda l: self.after(0, lambda: self.lang_value.configure(text=l)))
+        self.btn_run.configure(state="normal", text="Generate Subtitles")
+        self.progress.stop()
+        self.progress.grid_forget()
+
+    def log(self, msg):
+        self.log_box.insert("end", f"{msg}\n")
+        self.log_box.see("end")
+
+if __name__ == "__main__":
+    app = ProfessionalApp()
     app.mainloop()
